@@ -2,10 +2,7 @@ package org.zeromq.dafka;
 
 import static org.zeromq.ZActor.SimpleActor;
 
-import java.util.Arrays;
-import java.util.List;
-import java.util.Properties;
-import java.util.UUID;
+import java.util.*;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
@@ -33,14 +30,10 @@ public class DafkaConsumer extends SimpleActor {
 
     private DafkaBeacon beacon;
     private ZActor beaconActor;
-
     private Socket sub;
     private Socket pub;
-
-    private String topic = "HELLO";
     private String consumerAddress;
-
-    private long lastSequence = -1;
+    private Map<String, Long> partitions = new HashMap<>();
 
     public DafkaConsumer() {
         this.beacon = new DafkaBeacon();
@@ -108,14 +101,20 @@ public class DafkaConsumer extends SimpleActor {
 
     private void handleSubscriber(Socket pipe) {
         DafkaProto message = DafkaProto.recv(sub);
-        log.info("{}-Message from {} with sequence {}", message.id(), message.topic(), message.sequence());
+        String partition = message.address();
+
+        long lastSequence = -1;
+        if (partitions.containsKey(partition)) {
+            lastSequence = partitions.get(partition);
+        }
+
+        log.info("{} : {}-Message from {} with sequence {}", partition, message.id(), message.topic(), message.sequence());
 
         if (message.id() == DafkaProto.MSG) {
             if (lastSequence + 1 < message.sequence()) {
-                fetch(message);
+                fetch(message, lastSequence);
             } else {
                 acceptCurrentMessage(message, pipe);
-                lastSequence = message.sequence();
             }
         }
 
@@ -125,15 +124,9 @@ public class DafkaConsumer extends SimpleActor {
             }
         }
 
-        if (message.id() == DafkaProto.HEAD) {
+        if (message.id() == DafkaProto.HEAD || message.id() == DafkaProto.DIRECT_HEAD) {
             if (lastSequence < message.sequence()) {
-                fetch(message);
-            }
-        }
-
-        if (message.id() == DafkaProto.DIRECT_HEAD) {
-            if (lastSequence < message.sequence()) {
-                fetch(message);
+                fetch(message, lastSequence);
             }
         }
     }
@@ -155,11 +148,11 @@ public class DafkaConsumer extends SimpleActor {
     }
 
     private void acceptCurrentMessage(DafkaProto message, Socket pipe) {
-        lastSequence = message.sequence();
+        partitions.put(message.address(), message.sequence());
         pipe.send(message.content().toString());
     }
 
-    private void fetch(DafkaProto recv) {
+    private void fetch(DafkaProto recv, long lastSequence) {
         long start = lastSequence + 1;
         long count = recv.sequence() - lastSequence;
         DafkaProto dafkaProto = new DafkaProto(DafkaProto.FETCH);
