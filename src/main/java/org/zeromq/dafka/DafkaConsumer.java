@@ -149,7 +149,8 @@ public class DafkaConsumer extends SimpleActor {
 
     private void acceptCurrentMessage(DafkaProto message, Socket pipe) {
         partitions.put(message.address(), message.sequence());
-        pipe.send(message.content().toString());
+        pipe.send(message.address(), ZMQ.SNDMORE);
+        pipe.send(message.content().toString(), 0);
     }
 
     private void fetch(DafkaProto recv, long lastSequence) {
@@ -162,7 +163,7 @@ public class DafkaConsumer extends SimpleActor {
         dafkaProto.setSequence(start);
         dafkaProto.setCount(count);
         dafkaProto.send(pub);
-        log.info("Fetching {} starting from {} ...", count, start);
+        log.info("Fetching {} starting from {} for partition {}...", count, start, recv.address());
     }
 
     private void getHeads(String topic) {
@@ -260,7 +261,7 @@ public class DafkaConsumer extends SimpleActor {
         final Thread zmqThread = new Thread(() -> {
             while (!Thread.currentThread().isInterrupted()) {
                 // TODO: Retrieve messages from subscribed topics and print them!
-                log.info(pipe.recvStr());
+                log.info("{}: {}", pipe.recvStr(), pipe.recvStr());
                 // HINT: Call receive on the actor pipe
             }
         });
